@@ -27,20 +27,21 @@
 
 /* Main Container Injection */
 #gpt-tabs-container {
-    width: 100%;
-    /* margin-bottom to push content down? */
-    /* Usually it's flex item, so it just sits there. */
-    /* Add some padding */
+    width: calc(100% - 20px);
     padding: 10px 20px 0 20px;
-    background: transparent;
+    background: var(--gpt-tab-bg);
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
-    /* Don't shrink */
     border-bottom: 1px solid var(--gpt-tab-border);
     margin-bottom: 20px;
-    /* Space between tabs and content */
+    /* Fixed positioning to stay below ChatGPT header */
+    position: fixed;
+    top: 60px;
+    left: 0;
+    z-index: 100;
+    /* Lower than ChatGPT's header but above content */
 }
 
 /* Tab Navigation List */
@@ -105,6 +106,11 @@
     /* Bottom transparent */
     cursor: default;
     font-weight: 600;
+}
+
+/* Padding for main content to account for fixed tabs */
+main:has(#gpt-tabs-container) {
+    padding-top: 80px !important;
 }
 
 /* Content Hiding */
