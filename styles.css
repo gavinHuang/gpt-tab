@@ -1,0 +1,124 @@
+/* Bootstrap-like Tabs Styling */
+
+/* Variables */
+:root {
+    --gpt-tab-border: #dee2e6;
+    --gpt-tab-bg: #fff;
+    --gpt-tab-hover: #e9ecef;
+    --gpt-tab-active-bg: #fff;
+    --gpt-tab-active-border: #dee2e6;
+    --gpt-tab-text: #495057;
+    --gpt-tab-active-text: #495057;
+}
+
+/* Dark Mode Overrides (inferred from ChatGPT classes usually, but we set manually for now or use transparent) */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --gpt-tab-border: #4d4d4f;
+        --gpt-tab-bg: #343541;
+        --gpt-tab-hover: #40414f;
+        --gpt-tab-active-bg: #343541;
+        /* Match main bg */
+        --gpt-tab-active-border: #565869;
+        --gpt-tab-text: #ececf1;
+        --gpt-tab-active-text: #fff;
+    }
+}
+
+/* Main Container Injection */
+#gpt-tabs-container {
+    width: 100%;
+    /* margin-bottom to push content down? */
+    /* Usually it's flex item, so it just sits there. */
+    /* Add some padding */
+    padding: 10px 20px 0 20px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    /* Don't shrink */
+    border-bottom: 1px solid var(--gpt-tab-border);
+    margin-bottom: 20px;
+    /* Space between tabs and content */
+}
+
+/* Tab Navigation List */
+.gpt-nav-tabs {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    width: 100%;
+    margin-bottom: -1px;
+    /* Overlap container border */
+    gap: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--gpt-tab-border) transparent;
+    padding-bottom: 8px;
+    /* Space for scrollbar */
+}
+
+/* Webkit scrollbar styling */
+.gpt-nav-tabs::-webkit-scrollbar {
+    height: 6px;
+}
+
+.gpt-nav-tabs::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.gpt-nav-tabs::-webkit-scrollbar-thumb {
+    background-color: var(--gpt-tab-border);
+    border-radius: 3px;
+}
+
+.gpt-nav-tabs::-webkit-scrollbar-thumb:hover {
+    background-color: var(--gpt-tab-text);
+}
+
+/* Individual Tab Link */
+.gpt-nav-link {
+    display: block;
+    padding: 8px 16px;
+    border: 1px solid transparent;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+    background: transparent;
+    color: var(--gpt-tab-text);
+    cursor: pointer;
+    font-size: 14px;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out;
+}
+
+.gpt-nav-link:hover {
+    border-color: var(--gpt-tab-hover) var(--gpt-tab-hover) var(--gpt-tab-border);
+    /* Bootstrap hover: partial border */
+}
+
+.gpt-nav-link.active {
+    color: var(--gpt-tab-active-text);
+    background-color: var(--gpt-tab-active-bg);
+    border-color: var(--gpt-tab-active-border) var(--gpt-tab-active-border) transparent;
+    /* Bottom transparent */
+    cursor: default;
+    font-weight: 600;
+}
+
+/* Content Hiding */
+.gpt-hidden {
+    display: none !important;
+}
+
+/* Toggle Close Button */
+.gpt-close-btn {
+    background: transparent;
+    border: none;
+    color: var(--gpt-tab-text);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 5px 10px;
+    margin-left: 10px;
+}
