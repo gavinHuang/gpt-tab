@@ -2,7 +2,10 @@
 
 A Chrome extension that transforms the ChatGPT interface into a tabbed view. Instead of scrolling through a long conversation history, each user query and response pair is organized into its own tab, making navigation and focus much easier.
 
+![screenshot](image.png)
+
 ## Features
+
 
 - **Tabbed Interface**: Automatically converts linear conversations into tabs.
 - **Smart Titles**: Tabs are named after the user's question (truncated for readability).
