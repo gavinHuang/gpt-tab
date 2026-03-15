@@ -20,7 +20,11 @@
             getSendBtn:      () => document.querySelector('button[data-testid="send-button"]'),
             getLastResponse: () => {
                 const els = document.querySelectorAll('[data-message-author-role="assistant"]');
-                return els.length ? els[els.length - 1].innerText.trim() : null;
+                if (!els.length) return null;
+                const last = els[els.length - 1];
+                // Use textContent (not innerText) so hidden elements (e.g. .gpt-hidden tabs) still return text
+                const prose = last.querySelector('.markdown, .prose, [class*="markdown"]');
+                return (prose ?? last).textContent.trim() || null;
             },
             inject(el, text) {
                 el.focus();
@@ -41,7 +45,7 @@
                 document.querySelector('button.send-button'),
             getLastResponse: () => {
                 const els = document.querySelectorAll('.model-response-text');
-                return els.length ? els[els.length - 1].innerText.trim() : null;
+                return els.length ? els[els.length - 1].textContent.trim() : null;
             },
             inject(el, text) {
                 el.focus();
@@ -60,7 +64,7 @@
             // data-is-streaming="true" while generating, "false" when done
             getLastResponse: () => {
                 const els = document.querySelectorAll('[data-is-streaming]');
-                return els.length ? els[els.length - 1].innerText.trim() : null;
+                return els.length ? els[els.length - 1].textContent.trim() : null;
             },
             inject(el, text) {
                 el.focus();
@@ -98,6 +102,7 @@
 
     async function runPrompt({ promptText, roundNumber }) {
         try {
+            console.log(`[ai-connector:${SITE}] runPrompt start round=${roundNumber}`);
             // 1. Find input
             const input = await waitFor(cfg.getInput, 15000);
             if (!input) throw new Error('Input field not found after 15s');
@@ -116,15 +121,18 @@
             if (!btn) throw new Error('Send button not found or disabled');
             if (cancelled) return;
             btn.click();
+            console.log(`[ai-connector:${SITE}] clicked send`);
 
             // 4. Snapshot response state before generation starts
             const before = cfg.getLastResponse() || '';
+            console.log(`[ai-connector:${SITE}] before="${before.substring(0,50)}"`);
 
             // 5. Wait for new text to appear (up to 10s)
-            await waitFor(() => {
+            const gotNew = await waitFor(() => {
                 const t = cfg.getLastResponse();
                 return t && t !== before;
             }, 10000, 300);
+            console.log(`[ai-connector:${SITE}] step5 gotNew=${!!gotNew} text="${(cfg.getLastResponse()||'').substring(0,50)}"`);
 
             // 6. Stream partial updates every 2s
             const streamTimer = setInterval(() => {
@@ -148,16 +156,20 @@
                 return false;
             }, 180000, 1500);
             clearInterval(streamTimer);
+            console.log(`[ai-connector:${SITE}] stabilised, stableText="${stableText.substring(0,50)}"`);
 
             if (cancelled) return;
             await sleep(400);
 
             const text = cfg.getLastResponse();
+            console.log(`[ai-connector:${SITE}] final text="${(text||'').substring(0,50)}" before="${before.substring(0,50)}"`);
             if (!text || text === before) throw new Error('Could not read response text');
 
             relay({ type: 'AI_RESPONSE', ai: SITE, roundNumber, text, streaming: false });
+            console.log(`[ai-connector:${SITE}] relayed final response`);
 
         } catch (err) {
+            console.log(`[ai-connector:${SITE}] ERROR: ${err.message}`);
             if (cancelled) return;
             relay({ type: 'CONNECTOR_ERROR', ai: SITE, roundNumber, message: err.message });
         }

@@ -15,7 +15,15 @@ const AI_OPEN_URLS = {
 const aiTabIds = { chatgpt: null, gemini: null, claude: null };
 let groupChatTabId = null;
 let groupChatPort = null;
+let groupChatBuffer = []; // messages queued while port is disconnected
 const tabChannelPorts = new Map();
+
+function postToGroupChat(msg) {
+    if (groupChatPort) {
+        try { groupChatPort.postMessage(msg); return; } catch { groupChatPort = null; }
+    }
+    groupChatBuffer.push(msg);
+}
 
 // ── Restore state on SW wake-up ───────────────────────────────────────────────
 chrome.storage.session.get(['groupChatTabId', 'aiTabIds'], (data) => {
@@ -62,6 +70,9 @@ chrome.runtime.onConnect.addListener((port) => {
         persist();
         port.onMessage.addListener(handleGroupChatMessage);
         port.onDisconnect.addListener(() => { groupChatPort = null; });
+        // Flush any messages buffered while the port was disconnected (e.g. SW death)
+        const toFlush = groupChatBuffer.splice(0);
+        for (const m of toFlush) { try { port.postMessage(m); } catch {} }
         return;
     }
 
@@ -89,11 +100,11 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
             aiTabIds[ai] = sender.tab.id;
             persist();
         }
-        groupChatPort?.postMessage(msg);
+        postToGroupChat(msg);
         return;
     }
     if (msg.type === 'AI_RESPONSE' || msg.type === 'CONNECTOR_ERROR') {
-        groupChatPort?.postMessage(msg);
+        postToGroupChat(msg);
         return;
     }
 });
@@ -161,7 +172,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 async function sendPromptToAI(ai, promptText, roundNumber) {
     const tabId = aiTabIds[ai];
     if (!tabId) {
-        groupChatPort?.postMessage({ type: 'CONNECTOR_ERROR', ai, roundNumber, message: `No tab open for ${ai}` });
+        postToGroupChat({ type: 'CONNECTOR_ERROR', ai, roundNumber, message: `No tab open for ${ai}` });
         return;
     }
 
@@ -174,7 +185,7 @@ async function sendPromptToAI(ai, promptText, roundNumber) {
         try {
             await chrome.tabs.sendMessage(tabId, { type: 'INJECT_PROMPT', promptText, roundNumber });
         } catch (e2) {
-            groupChatPort?.postMessage({ type: 'CONNECTOR_ERROR', ai, roundNumber, message: e2.message });
+            postToGroupChat({ type: 'CONNECTOR_ERROR', ai, roundNumber, message: e2.message });
         }
     }
 }

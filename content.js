@@ -16,7 +16,6 @@ const channel = (() => {
                 setTimeout(connect, 1000);
             });
         } catch (e) {
-            console.warn('[GPT Tab UI]: Channel connect failed', e);
             setTimeout(connect, 2000);
         }
     }
@@ -27,7 +26,7 @@ const channel = (() => {
         /** Send a message to all other connected pages */
         send(msg) {
             if (!port) connect();
-            try { port?.postMessage(msg); } catch (e) { console.warn('[GPT Tab UI]: channel send failed', e); }
+            try { port?.postMessage(msg); } catch { }
         },
         /** Register a handler for messages arriving from other pages */
         onMessage(fn) {

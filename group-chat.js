@@ -17,6 +17,8 @@ let activeOrder = [];
 let currentRespondingIndex = 0;
 
 // ── Port ──────────────────────────────────────────────────────────────────────
+let hasInitialized = false;
+
 function connectPort() {
     try {
         port = chrome.runtime.connect({ name: 'group-chat' });
@@ -25,8 +27,12 @@ function connectPort() {
             port = null;
             setTimeout(connectPort, 500);
         });
-        // Send immediately — background openAITabs() is idempotent
-        port.postMessage({ type: 'OPEN_AI_TABS' });
+        // Only open AI tabs on first connection — reconnects after SW death must NOT
+        // re-inject connectors, which would cancel any ongoing runPrompt.
+        if (!hasInitialized) {
+            hasInitialized = true;
+            port.postMessage({ type: 'OPEN_AI_TABS' });
+        }
     } catch {
         setTimeout(connectPort, 1000);
     }
