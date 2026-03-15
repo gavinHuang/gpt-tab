@@ -1,4 +1,42 @@
 
+// ─── Cross-page channel (background service worker relay) ───────────────────
+const channel = (() => {
+    let port = null;
+    const listeners = [];
+
+    function connect() {
+        try {
+            port = chrome.runtime.connect({ name: 'tab-channel' });
+            port.onMessage.addListener((msg) => {
+                listeners.forEach(fn => fn(msg));
+            });
+            port.onDisconnect.addListener(() => {
+                port = null;
+                // Service worker went idle — reconnect on next send or after delay
+                setTimeout(connect, 1000);
+            });
+        } catch (e) {
+            console.warn('[GPT Tab UI]: Channel connect failed', e);
+            setTimeout(connect, 2000);
+        }
+    }
+
+    connect();
+
+    return {
+        /** Send a message to all other connected pages */
+        send(msg) {
+            if (!port) connect();
+            try { port?.postMessage(msg); } catch (e) { console.warn('[GPT Tab UI]: channel send failed', e); }
+        },
+        /** Register a handler for messages arriving from other pages */
+        onMessage(fn) {
+            listeners.push(fn);
+        },
+    };
+})();
+// ────────────────────────────────────────────────────────────────────────────
+
 // DOM Selectors
 const SELECTORS = {
     USER_MESSAGE: '[data-message-author-role="user"]',

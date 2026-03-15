@@ -1,24 +1,49 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Tab UI",
-  "version": "1.0",
-  "description": "Customizes OpenAI Chat UI with tabs for each user question.",
+  "name": "AI Group Chat",
+  "version": "2.0",
+  "description": "Multi-AI group chat across ChatGPT, Gemini, and Claude — brainstorm, debate, or commentary.",
   "permissions": [
     "activeTab",
-    "scripting"
+    "scripting",
+    "tabs",
+    "storage"
   ],
+  "host_permissions": [
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "https://gemini.google.com/*",
+    "https://claude.ai/*"
+  ],
+  "action": {
+    "default_title": "Open AI Group Chat"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
   "content_scripts": [
     {
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*"
       ],
-      "js": [
-        "content.js"
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/*",
+        "https://claude.ai/*"
       ],
-      "css": [
-        "styles.css"
-      ]
+      "js": ["ai-connector.js"]
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["group-chat.html"],
+      "matches": ["<all_urls>"]
     }
   ]
 }
