@@ -133,6 +133,14 @@ async function openAITabs() {
             const existing = await chrome.tabs.query({ url: AI_URL_PATTERNS[ai] });
             if (existing.length > 0) {
                 aiTabIds[ai] = existing[0].id;
+                // Claude: non-chat pages (/projects, /settings, etc.) have no input field.
+                // Navigate to /new if the existing tab isn't already on a chat page.
+                if (ai === 'claude') {
+                    const url = existing[0].url || '';
+                    if (!url.includes('/new') && !url.includes('/chat')) {
+                        await chrome.tabs.update(aiTabIds[ai], { url: AI_OPEN_URLS[ai] });
+                    }
+                }
             } else {
                 const tab = await chrome.tabs.create({ url: AI_OPEN_URLS[ai], active: false });
                 aiTabIds[ai] = tab.id;
@@ -152,14 +160,6 @@ async function injectConnector(ai, tabId) {
         console.log(`[BG] ${ai}: injection failed (tab may still be loading): ${e.message}`);
     }
 }
-
-// Re-inject when AI tabs finish loading (handles navigation / page refresh)
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-    if (changeInfo.status !== 'complete') return;
-    const ai = Object.keys(aiTabIds).find(a => aiTabIds[a] === tabId);
-    if (!ai) return;
-    injectConnector(ai, tabId);
-});
 
 chrome.tabs.onRemoved.addListener((tabId) => {
     const ai = Object.keys(aiTabIds).find(a => aiTabIds[a] === tabId);
