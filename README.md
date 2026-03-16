@@ -1,11 +1,30 @@
-# ChatGPT Tab UI
+# AI Group Chat + ChatGPT Tab UI
 
-A Chrome extension that transforms the ChatGPT interface into a tabbed view. Instead of scrolling through a long conversation history, each user query and response pair is organized into its own tab, making navigation and focus much easier.
+A Chrome extension with two features:
 
-![screenshot](image.png)
+1. **AI Group Chat** — send a prompt to ChatGPT, Gemini, and Claude simultaneously and watch them respond in a shared conversation. Supports brainstorm, debate, and commentary modes.
+2. **ChatGPT Tab UI** — transforms the ChatGPT interface into a tabbed view, organizing each question and response into its own tab.
 
-## Features
+## AI Group Chat
 
+![group chat screenshot](group-chat.png)
+
+Click the extension icon to open the Group Chat UI. All three AIs respond sequentially, each seeing the others' previous replies, building a real multi-model conversation.
+
+### Group Chat Features
+
+- **Three modes**: Brainstorm, Debate, Commentary
+- **Sequential responses**: Each AI sees what the others said before replying
+- **@mentions**: Direct a round to specific AIs with `@chatgpt`, `@gemini`, or `@claude`
+- **Response order control**: Drag the order arrows to change which AI goes first
+- **Multi-round**: Continue the conversation across rounds with full history context
+- **Streaming**: Responses stream in real time as each AI generates them
+
+## ChatGPT Tab UI
+
+![screenshot](chatgpt-tab.png)
+
+### Tab UI Features
 
 - **Tabbed Interface**: Automatically converts linear conversations into tabs.
 - **Smart Titles**: Tabs are named after the user's question (truncated for readability).
@@ -24,6 +43,16 @@ A Chrome extension that transforms the ChatGPT interface into a tabbed view. Ins
 5. Select the directory where you cloned the repository.
 
 ## Usage
+
+### Group Chat
+
+1. Click the extension icon — the Group Chat UI opens in a new tab.
+2. Select a mode (Brainstorm / Debate / Commentary).
+3. Type a prompt and press **Send** (or Ctrl/Cmd+Enter).
+4. ChatGPT, Gemini, and Claude will each respond in sequence.
+5. Click **Continue** to start another round on the same topic, or type a new message.
+
+### ChatGPT Tab UI
 
 1. Navigate to [ChatGPT](https://chatgpt.com/).
 2. Start a new conversation or open an existing one.
