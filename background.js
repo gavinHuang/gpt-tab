@@ -154,10 +154,12 @@ async function openAITabs() {
 }
 
 async function injectConnector(ai, tabId) {
+    console.log(`[BG] injecting connector into ${ai} tab ${tabId}`);
     try {
         await chrome.scripting.executeScript({ target: { tabId }, files: ['ai-connector.js'] });
+        console.log(`[BG] injection succeeded for ${ai} tab ${tabId}`);
     } catch (e) {
-        console.log(`[BG] ${ai}: injection failed (tab may still be loading): ${e.message}`);
+        console.log(`[BG] ${ai}: injection FAILED: ${e.message}`);
     }
 }
 
@@ -171,6 +173,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // ── Send prompt to AI tab ─────────────────────────────────────────────────────
 async function sendPromptToAI(ai, promptText, roundNumber) {
     const tabId = aiTabIds[ai];
+    console.log(`[BG] sendPromptToAI ai=${ai} tabId=${tabId} round=${roundNumber}`);
     if (!tabId) {
         postToGroupChat({ type: 'CONNECTOR_ERROR', ai, roundNumber, message: `No tab open for ${ai}` });
         return;
@@ -179,6 +182,7 @@ async function sendPromptToAI(ai, promptText, roundNumber) {
     // Try sending directly first; if listener is gone, re-inject and retry once
     try {
         await chrome.tabs.sendMessage(tabId, { type: 'INJECT_PROMPT', promptText, roundNumber });
+        console.log(`[BG] sendMessage to ${ai} succeeded`);
     } catch {
         // Listener not registered — re-inject then retry
         await injectConnector(ai, tabId);

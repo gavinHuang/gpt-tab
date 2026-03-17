@@ -27,6 +27,15 @@
         "https://chatgpt.com/*",
         "https://chat.openai.com/*"
       ],
+      "js": ["chatgpt-main-world.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*"
+      ],
       "js": ["content.js"],
       "css": ["styles.css"]
     },
