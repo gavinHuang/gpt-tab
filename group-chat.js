@@ -303,7 +303,7 @@ function renderStreaming(ai, text) {
         row.querySelector('.msg-content').appendChild(bubble);
         thread.appendChild(row);
     }
-    document.getElementById(`streaming-bubble-${ai}`).textContent = text;
+    document.getElementById(`streaming-bubble-${ai}`).innerHTML = marked.parse(text);
     scrollBottom();
 }
 
@@ -312,7 +312,7 @@ function finalizeResponse(ai, text) {
     const existing = document.getElementById(`streaming-${ai}`);
     if (existing) {
         const bubble = document.getElementById(`streaming-bubble-${ai}`);
-        bubble.textContent = text;
+        bubble.innerHTML = marked.parse(text);
         bubble.className = 'msg-bubble';
         existing.removeAttribute('id');
         document.getElementById(`streaming-bubble-${ai}`)?.removeAttribute('id');
@@ -331,7 +331,7 @@ function appendAIMessage(ai, text, isError) {
     const row = makeAIRow(ai);
     const bubble = document.createElement('div');
     bubble.className = isError ? 'msg-bubble error' : 'msg-bubble';
-    bubble.textContent = text;
+    bubble.innerHTML = marked.parse(text);
     row.querySelector('.msg-content').appendChild(bubble);
     thread.appendChild(row);
     scrollBottom();
