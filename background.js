@@ -1,5 +1,5 @@
 // ── State ─────────────────────────────────────────────────────────────────────
-const AI_NAMES = ['chatgpt', 'gemini', 'claude'];
+const AI_NAMES = ['gemini', 'claude'];
 const AI_URL_PATTERNS = {
     chatgpt: 'https://chatgpt.com/*',
     gemini:  'https://gemini.google.com/*',
@@ -115,7 +115,7 @@ async function handleGroupChatMessage(msg) {
         try { await openAITabs(); } catch (e) { console.log('[BG] openAITabs error:', e.message); }
     }
     if (msg.type === 'INJECT_PROMPT') {
-        await sendPromptToAI(msg.ai, msg.promptText, msg.roundNumber);
+        await sendPromptToAI(msg.ai, msg.promptText, msg.roundNumber, msg.arkoseToken);
     }
 }
 
@@ -171,7 +171,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // ── Send prompt to AI tab ─────────────────────────────────────────────────────
-async function sendPromptToAI(ai, promptText, roundNumber) {
+async function sendPromptToAI(ai, promptText, roundNumber, arkoseToken) {
     const tabId = aiTabIds[ai];
     console.log(`[BG] sendPromptToAI ai=${ai} tabId=${tabId} round=${roundNumber}`);
     if (!tabId) {
@@ -179,15 +179,16 @@ async function sendPromptToAI(ai, promptText, roundNumber) {
         return;
     }
 
+    const msg = { type: 'INJECT_PROMPT', promptText, roundNumber, arkoseToken };
     // Try sending directly first; if listener is gone, re-inject and retry once
     try {
-        await chrome.tabs.sendMessage(tabId, { type: 'INJECT_PROMPT', promptText, roundNumber });
+        await chrome.tabs.sendMessage(tabId, msg);
         console.log(`[BG] sendMessage to ${ai} succeeded`);
     } catch {
         // Listener not registered — re-inject then retry
         await injectConnector(ai, tabId);
         try {
-            await chrome.tabs.sendMessage(tabId, { type: 'INJECT_PROMPT', promptText, roundNumber });
+            await chrome.tabs.sendMessage(tabId, msg);
         } catch (e2) {
             postToGroupChat({ type: 'CONNECTOR_ERROR', ai, roundNumber, message: e2.message });
         }

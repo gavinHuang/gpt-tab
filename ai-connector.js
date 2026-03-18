@@ -13,15 +13,6 @@
     console.log('[ai-connector] loaded on', SITE, location.href);
     if (!SITE) return;
 
-    // ── Turnstile token (captured from ChatGPT's own requests via main world) ──
-    let _turnstileToken = null;
-    if (SITE === 'chatgpt') {
-        window.addEventListener('__ai_turnstile_token', (e) => {
-            _turnstileToken = e.detail.token;
-            console.log('[ai-connector] captured turnstile token');
-        });
-    }
-
     // ── Utilities ─────────────────────────────────────────────────────────────
     let cancelled = false;
 
@@ -59,119 +50,61 @@
         if (buffer) yield buffer;
     }
 
-    // ── ChatGPT handler (API-based) ───────────────────────────────────────────
-    // Calls chatgpt.com's internal backend API directly from the content script.
-    // The browser sends session cookies automatically (same origin).
-    // oai-device-id is read from localStorage — ChatGPT sets it on first visit
-    // and expects it on every request; without it the request looks like a bot.
+    // ── ChatGPT handler ───────────────────────────────────────────────────────
     const ChatGPT = {
         _accessToken:    null,
-        _conversationId: null, // reset on round 1, reused within same topic
+        _conversationId: null,
         _lastMessageId:  null,
 
         async getAccessToken() {
             if (this._accessToken) return this._accessToken;
-            const data = await fetch('/api/auth/session').then(r => r.json());
+            const data = await fetch('https://chatgpt.com/api/auth/session').then(r => r.json());
             if (!data.accessToken) throw new Error('ChatGPT: not logged in');
             this._accessToken = data.accessToken;
             return this._accessToken;
         },
 
         getDeviceId() {
-            // Reuse the UUID ChatGPT already stored; generate one if missing.
             let id = localStorage.getItem('oai-device-id');
-            if (!id) {
-                id = crypto.randomUUID();
-                localStorage.setItem('oai-device-id', id);
-            }
+            if (!id) { id = crypto.randomUUID(); localStorage.setItem('oai-device-id', id); }
             return id;
         },
 
-        async getRequirements(token, deviceId) {
-            const resp = await fetch('https://chatgpt.com/backend-api/sentinel/chat-requirements', {
-                method: 'POST',
-                headers: {
-                    'Authorization':  `Bearer ${token}`,
-                    'Content-Type':   'application/json',
-                    'oai-device-id':  deviceId,
-                    'oai-language':   navigator.language || 'en-US',
-                },
-                body: JSON.stringify({ conversation_mode_kind: 'primary_assistant' }),
-            });
-            if (!resp.ok) {
-                const body = await resp.text().catch(() => '');
-                console.log('[ai-connector] sentinel requirements FAILED', resp.status, body.slice(0, 200));
-                throw new Error(`ChatGPT requirements ${resp.status}`);
-            }
-            const data = await resp.json();
-            console.log('[ai-connector] sentinel requirements OK:', JSON.stringify(data));
-            return data;
-        },
-
-        async computeProofToken(seed, difficulty) {
-            const cores = navigator.hardwareConcurrency || 8;
-            const t0 = Date.now();
-            for (let i = 0; i < 500000; i++) {
-                if (i % 5000 === 0 && cancelled) return null;
-                const s   = JSON.stringify([cores, t0 + i, null, i, null, seed, 'gAAAAAB']);
-                const buf = await crypto.subtle.digest('SHA-512', new TextEncoder().encode(s));
-                const hex = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-                if (hex.startsWith(difficulty)) return 'gAAAAAB' + btoa(s);
-            }
-            return null;
-        },
-
-        async send(prompt, roundNumber) {
+        async send(prompt, roundNumber, arkoseToken) {
             console.log('[ai-connector] ChatGPT.send() called, round', roundNumber);
-            // New topic = new conversation; same topic = continue same thread.
-            if (roundNumber === 1) {
-                this._conversationId = null;
-                this._lastMessageId  = null;
-            }
+            if (roundNumber === 1) { this._conversationId = null; this._lastMessageId = null; }
 
             const token    = await this.getAccessToken();
             const deviceId = this.getDeviceId();
-            const reqs     = await this.getRequirements(token, deviceId);
-
-            const headers = {
-                'Authorization':  `Bearer ${token}`,
-                'Content-Type':   'application/json',
-                'Accept':         'text/event-stream',
-                'oai-device-id':  deviceId,
-                'oai-language':   navigator.language || 'en-US',
-                'openai-sentinel-chat-requirements-token': reqs.token,
-            };
-
-            if (reqs.proofofwork?.required) {
-                const proof = await this.computeProofToken(reqs.proofofwork.seed, reqs.proofofwork.difficulty);
-                if (proof) headers['openai-sentinel-proof-token'] = proof;
-            }
-
-            if (_turnstileToken) {
-                headers['openai-sentinel-turnstile-token'] = _turnstileToken;
-            }
 
             const resp = await fetch('https://chatgpt.com/backend-api/conversation', {
                 method: 'POST',
-                headers,
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type':  'application/json',
+                    'Accept':        'text/event-stream',
+                    'oai-device-id': deviceId,
+                    'oai-language':  navigator.language || 'en-US',
+                },
                 body: JSON.stringify({
-                    action:             'next',
-                    model:              'gpt-4o-mini',
+                    action:            'next',
+                    model:             'gpt-4o-mini',
                     messages: [{
                         id:      crypto.randomUUID(),
                         author:  { role: 'user' },
                         content: { content_type: 'text', parts: [prompt] },
                     }],
-                    parent_message_id:  this._lastMessageId || crypto.randomUUID(),
-                    conversation_id:    this._conversationId || undefined,
-                    conversation_mode:  { kind: 'primary_assistant' },
+                    parent_message_id: this._lastMessageId || crypto.randomUUID(),
+                    conversation_id:   this._conversationId || undefined,
+                    conversation_mode: { kind: 'primary_assistant' },
+                    arkose_token:      arkoseToken || undefined,
                     history_and_training_disabled: false,
                 }),
             });
 
             if (!resp.ok) {
                 const body = await resp.text().catch(() => '');
-                throw new Error(`ChatGPT API ${resp.status}: ${body.slice(0, 120)} | reqs keys: ${Object.keys(reqs).join(',')} | pow: ${JSON.stringify(reqs.proofofwork)} | arkose: ${JSON.stringify(reqs.arkose)}`);
+                throw new Error(`ChatGPT API ${resp.status}: ${body.slice(0, 300)}`);
             }
 
             let text = '';
@@ -333,9 +266,9 @@
     };
 
     // ── Prompt dispatcher ─────────────────────────────────────────────────────
-    async function runPrompt({ promptText, roundNumber }) {
+    async function runPrompt({ promptText, roundNumber, arkoseToken }) {
         try {
-            if      (SITE === 'chatgpt') await ChatGPT.send(promptText, roundNumber);
+            if      (SITE === 'chatgpt') await ChatGPT.send(promptText, roundNumber, arkoseToken);
             else if (SITE === 'claude')  await Claude.send(promptText, roundNumber);
             else if (SITE === 'gemini')  await Gemini.send(promptText, roundNumber);
         } catch (err) {

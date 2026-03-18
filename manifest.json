@@ -10,10 +10,7 @@
     "storage"
   ],
   "host_permissions": [
-    "https://chatgpt.com/*",
-    "https://chat.openai.com/*",
-    "https://gemini.google.com/*",
-    "https://claude.ai/*"
+    "<all_urls>"
   ],
   "action": {
     "default_title": "Open AI Group Chat"
@@ -51,7 +48,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["group-chat.html"],
+      "resources": ["group-chat.html", "arkose-api.js", "v2/api.js"],
       "matches": ["<all_urls>"]
     }
   ]

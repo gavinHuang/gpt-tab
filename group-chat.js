@@ -1,6 +1,23 @@
-const AI_NAMES = ['chatgpt', 'gemini', 'claude'];
-const AI_DISPLAY = { chatgpt: 'ChatGPT', gemini: 'Gemini', claude: 'Claude' };
-const AI_INITIAL = { chatgpt: 'G', gemini: '✦', claude: 'C' };
+// ── Arkose token generator ────────────────────────────────────────────────────
+// Client-side Arkose (api.js) requires the extension to be whitelisted in
+// ChatGPT's CSP frame-ancestors directive — only ChatHub's published extension
+// ID is whitelisted. We skip straight to ChatHub's public server fallback
+// (server.ts: fetchArkoseToken → https://chathub.gg/api/arkose).
+async function getArkoseToken() {
+    try {
+        const resp = await fetch('https://chathub.gg/api/arkose');
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        return data.token || null;
+    } catch {
+        return null;
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+const AI_NAMES = ['gemini', 'claude'];
+const AI_DISPLAY = { gemini: 'Gemini', claude: 'Claude' };
+const AI_INITIAL = { gemini: '✦', claude: 'C' };
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let port = null;
@@ -12,7 +29,7 @@ let readyAIs = new Set();
 let roundInProgress = false;
 let currentTopic = '';
 let pendingStart = false;
-let responseOrder = ['chatgpt', 'gemini', 'claude'];
+let responseOrder = ['gemini', 'claude'];
 let activeOrder = [];
 let currentRespondingIndex = 0;
 
@@ -43,7 +60,7 @@ function onMessage(msg) {
         readyAIs.add(msg.ai);
         setDot(msg.ai, 'ready');
         const count = readyAIs.size;
-        setStatus(`${AI_DISPLAY[msg.ai]} connected (${count}/3 ready)`);
+        setStatus(`${AI_DISPLAY[msg.ai]} connected (${count}/2 ready)`);
         if (count === AI_NAMES.length) {
             setStatus('All AIs ready');
             if (!roundInProgress) enableSend(true);
@@ -77,7 +94,7 @@ function onMessage(msg) {
 }
 
 // ── Sequential dispatch ───────────────────────────────────────────────────────
-function sendNextInSequence() {
+async function sendNextInSequence() {
     if (currentRespondingIndex >= activeOrder.length) {
         finishRound();
         return;
@@ -95,7 +112,6 @@ function sendNextInSequence() {
 function parseMentions(text) {
     const lower = text.toLowerCase();
     const tagMap = [
-        ['@chatgpt', 'chatgpt'], ['@gpt', 'chatgpt'],
         ['@gemini', 'gemini'],
         ['@claude', 'claude'],
     ];
