@@ -208,34 +208,63 @@ function updateTabs() {
             return;
         }
 
-        // 1. Validation
-        const userMsgSample = document.querySelector(SELECTORS.USER_MESSAGE) ||
-                            document.querySelector(SELECTORS.USER_MESSAGE_ALT);
-
-        if (!userMsgSample) {
-            if (tabsContainer) {
-                tabsContainer.style.display = 'none';
+        // 1. Find all user messages (deduplicated)
+        const allUserMsgs = (() => {
+            const seen = new Set();
+            const msgs = [];
+            for (const sel of [SELECTORS.USER_MESSAGE, SELECTORS.USER_MESSAGE_ALT]) {
+                document.querySelectorAll(sel).forEach(el => {
+                    if (!seen.has(el)) { seen.add(el); msgs.push(el); }
+                });
             }
+            return msgs;
+        })();
+
+        if (allUserMsgs.length === 0) {
+            if (tabsContainer) tabsContainer.style.display = 'none';
             return;
         }
 
-        // 2. Identification
-        let turnWrapper = userMsgSample.closest('article');
-        if (!turnWrapper) {
-            turnWrapper = userMsgSample.closest('.group') ||
-                         userMsgSample.closest('div[class*="group"]') ||
-                         userMsgSample.parentElement;
-        }
+        // 2. Identification — find mainListContainer robustly
+        const firstMsg = allUserMsgs[0];
+        // Try specific turn-container selectors first; avoid class*="group" which can match
+        // Tailwind modifier classes (e.g. "@w-lg/main:") deep inside a single turn.
+        let turnWrapper = firstMsg.closest('article') ||
+                          firstMsg.closest('section') ||
+                          firstMsg.closest('[data-testid*="conversation-turn"]') ||
+                          firstMsg.parentElement;
 
-        if (!turnWrapper) {
+        if (!turnWrapper || !turnWrapper.parentElement) {
             return;
         }
 
-        if (!turnWrapper.parentElement) {
-            return;
-        }
+        // Walk UP until mainListContainer contains ALL user messages, then walk DOWN
+        // until messages are in distinct direct children. This handles extra wrappers
+        // and avoids being fooled by containers inside a single turn.
+        let mainListContainer = turnWrapper.parentElement;
 
-        const mainListContainer = turnWrapper.parentElement;
+        // Phase 1: walk up until all messages are contained
+        while (mainListContainer && mainListContainer.parentElement &&
+               !allUserMsgs.every(m => mainListContainer.contains(m))) {
+            mainListContainer = mainListContainer.parentElement;
+        }
+        if (!mainListContainer) return;
+
+        // Phase 2: walk down if all messages share the same single direct child
+        for (let depth = 0; depth < 8; depth++) {
+            const childrenForMsgs = allUserMsgs.map(m => {
+                let el = m;
+                while (el && el.parentElement !== mainListContainer) el = el.parentElement;
+                return el;
+            }).filter(Boolean);
+
+            const uniqueChildren = new Set(childrenForMsgs);
+            if (uniqueChildren.size > 1) break; // multiple children — correct level
+
+            const singleChild = [...uniqueChildren][0];
+            if (!singleChild || singleChild === mainListContainer) break;
+            mainListContainer = singleChild;
+        }
 
         // 3. Inject Container
         if (!tabsContainer || !document.contains(tabsContainer)) {
