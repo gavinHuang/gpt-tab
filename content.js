@@ -30,9 +30,13 @@ function getTurns() {
         if (child === tabBar) continue;
         const uMsg = child.querySelector(USER_SEL);
         if (uMsg) {
+            const labelClone = uMsg.cloneNode(true);
+            labelClone.querySelector('.gpt-question-time')?.remove();
             cur = {
-                label: uMsg.textContent.trim().slice(0, 60) || `Q${turns.length + 1}`,
+                label: labelClone.textContent.trim().slice(0, 60) || `Q${turns.length + 1}`,
                 els: [child],
+                msgId: uMsg.dataset.messageId ||
+                       uMsg.closest('[data-message-id]')?.dataset.messageId,
             };
             turns.push(cur);
         } else if (cur) {
@@ -107,6 +111,7 @@ function renderTabs(turns) {
 function applyVisibility(turns) {
     turns.forEach((t, i) => {
         t.els.forEach(el => el.classList.toggle('gpt-hidden', i !== activeIdx));
+        if (i === activeIdx) injectQuestionTimestamp(t);
     });
 }
 
@@ -148,5 +153,92 @@ new MutationObserver(muts => {
     schedule();
 }).observe(document.body, { childList: true, subtree: true });
 
+// ── Conversation timestamps ───────────────────────────────────────────────────
+
+const msgTimestamps = {}; // messageId → create_time (Unix seconds)
+
+document.addEventListener('__gpt_ext_ts', e => {
+    Object.assign(msgTimestamps, e.detail);
+    schedule();
+});
+
+function formatDateTime(d) {
+    return d.toLocaleString(undefined, {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+    });
+}
+
+function injectQuestionTimestamp(turn) {
+    if (!turn.msgId) return;
+    const ts = msgTimestamps[turn.msgId];
+    if (!ts) return;
+    const firstEl = turn.els[0];
+    if (firstEl.querySelector('.gpt-question-time')) return;
+    const userEl = firstEl.querySelector(USER_SEL);
+    if (!userEl) return;
+    const timeEl = document.createElement('div');
+    timeEl.className = 'gpt-question-time';
+    timeEl.textContent = formatDateTime(new Date(ts * 1000));
+    userEl.appendChild(timeEl);
+}
+
+// ── Sidebar dates ─────────────────────────────────────────────────────────────
+// ChatGPT conversation UUIDs encode the creation timestamp in the first 8 hex
+// characters (Unix seconds), so no API call is needed.
+
+function dateFromConvId(id) {
+    const unix = parseInt(id?.replace(/-/g, '').slice(0, 8), 16);
+    return isNaN(unix) ? null : new Date(unix * 1000);
+}
+
+function formatSidebarDate(d) {
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) {
+        return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    }
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    if (d.getFullYear() === now.getFullYear()) {
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function injectSidebarDates() {
+    const root = document.getElementById('history');
+    if (!root) return;
+    for (const a of root.querySelectorAll('a[href*="/c/"]')) {
+        if (a.querySelector('.gpt-sidebar-date')) continue;
+        const convId = a.href.match(/\/c\/([^/?#]+)/)?.[1];
+        const d = dateFromConvId(convId);
+        if (!d) continue;
+        const badge = document.createElement('div');
+        badge.className = 'gpt-sidebar-date';
+        badge.textContent = formatSidebarDate(d);
+        a.appendChild(badge);
+    }
+}
+
+let sidebarTimer = null;
+new MutationObserver(muts => {
+    const sidebar = document.getElementById('history');
+    if (!sidebar) return;
+    if (muts.some(m => sidebar.contains(m.target))) {
+        clearTimeout(sidebarTimer);
+        sidebarTimer = setTimeout(injectSidebarDates, 300);
+    }
+}).observe(document.body, { childList: true, subtree: true });
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 schedule();
+
+// Poll until #history has conversation links (React may render them after document_idle)
+(function pollSidebar() {
+    if (document.querySelector('#history a[href*="/c/"]')) {
+        injectSidebarDates();
+    } else {
+        setTimeout(pollSidebar, 250);
+    }
+})();

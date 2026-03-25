@@ -29,7 +29,25 @@
             }
         }
 
-        return origFetch.apply(this, arguments);
+        const promise = origFetch.apply(this, arguments);
+
+        // Capture message timestamps from conversation API responses.
+        if (/\/backend-api\/conversation\/[^?#/]+/.test(url)) {
+            promise.then(resp => {
+                resp.clone().json().then(data => {
+                    const m = data?.mapping || {};
+                    const ts = {};
+                    for (const [k, v] of Object.entries(m)) {
+                        if (v?.message?.create_time) ts[k] = v.message.create_time;
+                    }
+                    if (Object.keys(ts).length) {
+                        document.dispatchEvent(new CustomEvent('__gpt_ext_ts', { detail: ts }));
+                    }
+                }).catch(() => {});
+            }).catch(() => {});
+        }
+
+        return promise;
     };
 
     // Also expose it so isolated world can poll synchronously after an event.
