@@ -11,6 +11,12 @@ let pinned   = false;  // user explicitly clicked a tab — don't auto-jump
 let turnCount = 0;     // track to detect newly added turns
 let enabled  = true;
 
+// ── Branch state ──────────────────────────────────────────────────────────────
+let currentConvId       = null;   // convId from current URL
+let branchInfo          = null;   // CHECK_BRANCH response (if current page is a branch)
+let branchChildrenByTurn = {};    // turnIndex → [node] for fork indicators + sub-tabs
+let breadcrumb          = null;   // injected breadcrumb DOM node
+
 // ── Core ─────────────────────────────────────────────────────────────────────
 
 function getTurns() {
@@ -37,10 +43,17 @@ function getTurns() {
                 els: [child],
                 msgId: uMsg.dataset.messageId ||
                        uMsg.closest('[data-message-id]')?.dataset.messageId,
+                questionText: uMsg.textContent.trim(),
+                answerText: null,
             };
             turns.push(cur);
         } else if (cur) {
             cur.els.push(child);
+            // Capture AI response text from the first assistant element encountered
+            if (!cur.answerText) {
+                const aiMsg = child.querySelector('[data-message-author-role="assistant"]');
+                if (aiMsg) cur.answerText = aiMsg.textContent.trim();
+            }
         }
         // elements before the first user message stay visible (intro / system UI)
     }
@@ -72,7 +85,7 @@ function hideTabBar() {
 }
 
 function mountTabBar(list) {
-    const main = document.querySelector('main');
+    const main   = document.querySelector('main');
     const parent = main ?? list.parentElement;
     if (tabBar && parent.contains(tabBar)) return; // already mounted
 
@@ -80,17 +93,22 @@ function mountTabBar(list) {
     tabBar = document.createElement('div');
     tabBar.id = 'gpt-tabs-container';
 
+    // First row: nav tabs + close button
+    const row = document.createElement('div');
+    row.className = 'gpt-tabs-row';
+
     const nav = document.createElement('div');
     nav.className = 'gpt-nav-tabs';
-    tabBar.appendChild(nav);
+    row.appendChild(nav);
 
     const closeBtn = document.createElement('button');
     closeBtn.className = 'gpt-close-btn';
     closeBtn.textContent = '✕';
     closeBtn.title = 'Disable tab mode';
     closeBtn.onclick = disable;
-    tabBar.appendChild(closeBtn);
+    row.appendChild(closeBtn);
 
+    tabBar.appendChild(row);
     parent.insertBefore(tabBar, parent.firstChild);
 }
 
@@ -100,7 +118,9 @@ function renderTabs(turns) {
     turns.forEach((t, i) => {
         const btn = document.createElement('button');
         btn.className = 'gpt-nav-link' + (i === activeIdx ? ' active' : '');
-        btn.textContent = t.label.length > 28 ? t.label.slice(0, 28) + '…' : t.label;
+        const rawLabel = t.label.length > 28 ? t.label.slice(0, 28) + '…' : t.label;
+        const hasBranches = (branchChildrenByTurn[i]?.length ?? 0) > 0;
+        btn.textContent = hasBranches ? rawLabel + ' ⑃' : rawLabel;
         btn.title = t.label;
         btn.onclick = () => { pinned = true; activeIdx = i; render(); };
         nav.appendChild(btn);
@@ -112,7 +132,9 @@ function applyVisibility(turns) {
     turns.forEach((t, i) => {
         t.els.forEach(el => el.classList.toggle('gpt-hidden', i !== activeIdx));
         if (i === activeIdx) injectQuestionTimestamp(t);
+        injectBranchBar(t, i);
     });
+    renderSubTabs();
 }
 
 function disable() {
@@ -126,11 +148,28 @@ function disable() {
 function onNavigate() {
     tabBar?.remove();
     tabBar    = null;
+    breadcrumb?.remove();
+    breadcrumb = null;
+    document.getElementById('gpt-sub-tabs')?.remove();
+
     activeIdx = 0;
     pinned    = false;
     turnCount = 0;
     enabled   = true;
+
+    // Reset branch state
+    branchInfo          = null;
+    branchChildrenByTurn = {};
+    currentConvId       = null;
+
+    // Report new convId to background (for branch node convId capture)
+    const newConvId = getConvId();
+    if (newConvId) {
+        chrome.runtime.sendMessage({ type: 'REPORT_CONV_ID', convId: newConvId });
+    }
+
     schedule();
+    loadBranchState();
 }
 
 const _push = history.pushState.bind(history);
@@ -231,8 +270,187 @@ new MutationObserver(muts => {
     }
 }).observe(document.body, { childList: true, subtree: true });
 
+// ── Branch UI ─────────────────────────────────────────────────────────────────
+
+function getConvId() {
+    return location.pathname.match(/\/c\/([^/?#]+)/)?.[1] || null;
+}
+
+function escHtml(str) {
+    return (str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+async function loadBranchState() {
+    const convId = getConvId();
+    currentConvId        = convId;
+    branchInfo           = null;
+    branchChildrenByTurn = {};
+
+    if (!convId) return;
+
+    // Check if this conversation is itself a branch
+    const info = await new Promise(resolve =>
+        chrome.runtime.sendMessage({ type: 'CHECK_BRANCH', convId }, resolve)
+    );
+    if (info?.isBranch) {
+        branchInfo = info;
+        renderBreadcrumb(info);
+    }
+
+    // Load branch children of this conversation (for fork indicators + sub-tabs)
+    const children = await new Promise(resolve =>
+        chrome.runtime.sendMessage({ type: 'GET_BRANCH_CHILDREN', convId }, resolve)
+    );
+    if (children && Object.keys(children).length > 0) {
+        branchChildrenByTurn = children;
+        schedule(); // re-render tabs with fork indicators
+    }
+}
+
+function renderBreadcrumb(info) {
+    breadcrumb?.remove();
+    breadcrumb = document.createElement('div');
+    breadcrumb.id = 'gpt-branch-breadcrumb';
+
+    const parentLabel = info.parentNode?.label || 'parent conversation';
+    const branchLabel = info.node?.label       || 'branch';
+    const questionText = info.node?.questionText || '';
+
+    breadcrumb.innerHTML =
+        `<span class="gpt-breadcrumb-icon">🌿</span>` +
+        `<span class="gpt-breadcrumb-text">Branched from: <em>${escHtml(parentLabel)}</em>` +
+        (questionText ? ` — "<em>${escHtml(questionText.slice(0, 60))}…</em>"` : '') +
+        ` → ${escHtml(branchLabel)}</span>` +
+        `<button class="gpt-breadcrumb-back">← Back to parent</button>`;
+
+    breadcrumb.querySelector('.gpt-breadcrumb-back').onclick = () => {
+        const parentConvId = info.parentNode?.convId;
+        if (parentConvId) location.href = `https://chatgpt.com/c/${parentConvId}`;
+    };
+
+    const main = document.querySelector('main');
+    if (main) main.insertBefore(breadcrumb, main.firstChild);
+}
+
+function renderSubTabs() {
+    // Remove existing sub-tab row
+    document.getElementById('gpt-sub-tabs')?.remove();
+
+    const children = branchChildrenByTurn[activeIdx];
+    if (!children?.length || !tabBar) return;
+
+    const subRow = document.createElement('div');
+    subRow.id = 'gpt-sub-tabs';
+
+    const arrow = document.createElement('span');
+    arrow.className = 'gpt-sub-tabs-arrow';
+    arrow.textContent = '↳';
+    subRow.appendChild(arrow);
+
+    for (const child of children) {
+        const btn = document.createElement('button');
+        btn.className = 'gpt-sub-tab';
+        btn.textContent = child.label;
+        btn.title = child.label;
+        if (!child.convId) {
+            btn.classList.add('gpt-sub-tab-pending');
+            btn.title = 'Branch is loading…';
+        } else {
+            btn.onclick = () => { location.href = `https://chatgpt.com/c/${child.convId}`; };
+        }
+        subRow.appendChild(btn);
+    }
+
+    tabBar.appendChild(subRow);
+}
+
+const BRANCH_TYPES = [
+    { type: 'deeper',    label: '🔍 Go deeper' },
+    { type: 'challenge', label: '⚔ Challenge'   },
+    { type: 'example',   label: '💡 Example'     },
+    { type: 'custom',    label: '+ Custom'        },
+];
+
+function injectBranchBar(turn, turnIdx) {
+    // Only inject when the turn has an AI response
+    if (turn.els.length < 2) return;
+    const lastEl = turn.els[turn.els.length - 1];
+
+    // Always re-add the hover class — React can strip custom classes during re-renders
+    lastEl.classList.add('gpt-has-branch-bar');
+
+    // Don't re-inject the bar itself
+    if (lastEl.querySelector('.gpt-branch-bar')) return;
+
+    const bar = document.createElement('div');
+    bar.className = 'gpt-branch-bar';
+
+    for (const { type, label } of BRANCH_TYPES) {
+        const btn = document.createElement('button');
+        btn.className = 'gpt-branch-btn';
+        btn.textContent = label;
+        btn.dataset.branchType = type;
+        btn.onclick = (e) => handleBranchClick(e, turn, turnIdx, type);
+        bar.appendChild(btn);
+    }
+
+    lastEl.appendChild(bar);
+}
+
+function handleBranchClick(e, turn, turnIdx, branchType) {
+    if (branchType === 'custom') {
+        showCustomInput(e.target.closest('.gpt-branch-bar'), turn, turnIdx);
+        return;
+    }
+    createBranch(turn, turnIdx, branchType, null);
+}
+
+function showCustomInput(bar, turn, turnIdx) {
+    if (bar.querySelector('.gpt-branch-custom-input')) return;
+
+    const input = document.createElement('input');
+    input.className = 'gpt-branch-custom-input';
+    input.type = 'text';
+    input.placeholder = 'Enter follow-up and press Enter…';
+    bar.appendChild(input);
+    input.focus();
+
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+            createBranch(turn, turnIdx, 'custom', input.value.trim());
+            input.remove();
+        }
+        if (e.key === 'Escape') input.remove();
+    };
+    input.onblur = () => setTimeout(() => input.remove(), 200);
+}
+
+function createBranch(turn, turnIdx, branchType, customText) {
+    const convId = getConvId();
+    if (!convId) return;
+
+    chrome.runtime.sendMessage({
+        type:         'CREATE_BRANCH',
+        convId,
+        turnIndex:    turnIdx,
+        messageId:    turn.msgId || null,
+        branchType,
+        customText:   customText || '',
+        questionText: turn.questionText || '',
+        answerText:   turn.answerText   || '',
+    }, () => {
+        // Refresh branch children after a short delay (storage write needs to settle)
+        setTimeout(loadBranchState, 500);
+    });
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 schedule();
+loadBranchState();
 
 // Poll until #history has conversation links (React may render them after document_idle)
 (function pollSidebar() {

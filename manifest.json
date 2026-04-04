@@ -48,7 +48,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["group-chat.html", "arkose-api.js", "v2/api.js"],
+      "resources": ["group-chat.html", "arkose-api.js", "v2/api.js", "branch-store.js"],
       "matches": ["<all_urls>"]
     }
   ]

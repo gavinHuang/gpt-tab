@@ -6,6 +6,7 @@
     --tab-hover:       #e9ecef;
     --tab-text:        #495057;
     --tab-active-text: #212529;
+    --branch-accent:   #4a9f6e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -15,8 +16,11 @@
         --tab-hover:       #2f2f2f;
         --tab-text:        #ececf1;
         --tab-active-text: #fff;
+        --branch-accent:   #5dbf87;
     }
 }
+
+/* ── Tab container ─────────────────────────────────────────────────────────── */
 
 #gpt-tabs-container {
     position: fixed;
@@ -24,12 +28,21 @@
     left: 0;
     z-index: 100;
     width: 100%;
-    padding: 6px 16px 0;
     background: var(--tab-bg);
     border-bottom: 1px solid var(--tab-border);
     display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    box-sizing: border-box;
+}
+
+/* First row: tabs + close button */
+.gpt-tabs-row {
+    display: flex;
     align-items: center;
     gap: 4px;
+    padding: 6px 16px 0;
+    width: 100%;
     box-sizing: border-box;
 }
 
@@ -100,7 +113,152 @@ main:has(#gpt-tabs-container) {
     display: none !important;
 }
 
-/* Sidebar date — absolutely positioned on the right of each conversation row */
+/* ── Sub-tab bar (sibling branches) ────────────────────────────────────────── */
+
+#gpt-sub-tabs {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 16px 5px 28px;
+    border-top: 1px solid var(--tab-border);
+    background: var(--tab-bg);
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--tab-border) transparent;
+}
+
+.gpt-sub-tabs-arrow {
+    color: var(--branch-accent);
+    font-size: 12px;
+    margin-right: 4px;
+    flex-shrink: 0;
+    opacity: 0.8;
+}
+
+.gpt-sub-tab {
+    padding: 3px 10px;
+    border: 1px solid var(--tab-border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--tab-text);
+    font-size: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.1s, border-color 0.1s;
+}
+
+.gpt-sub-tab:hover {
+    background: var(--tab-hover);
+    border-color: var(--branch-accent);
+}
+
+.gpt-sub-tab.gpt-sub-tab-pending {
+    opacity: 0.5;
+    cursor: default;
+    font-style: italic;
+}
+
+/* ── Breadcrumb (shown at top of branch conversations) ─────────────────────── */
+
+#gpt-branch-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: color-mix(in srgb, var(--branch-accent) 8%, var(--tab-bg));
+    border-bottom: 1px solid color-mix(in srgb, var(--branch-accent) 30%, var(--tab-border));
+    font-size: 13px;
+    color: var(--tab-text);
+    flex-wrap: wrap;
+}
+
+.gpt-breadcrumb-icon {
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.gpt-breadcrumb-text {
+    flex: 1;
+    min-width: 0;
+}
+
+.gpt-breadcrumb-text em {
+    font-style: italic;
+    opacity: 0.85;
+}
+
+.gpt-breadcrumb-back {
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--tab-border);
+    border-radius: 4px;
+    color: var(--branch-accent);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 4px 10px;
+    transition: background 0.1s;
+}
+
+.gpt-breadcrumb-back:hover {
+    background: var(--tab-hover);
+}
+
+/* ── Branch buttons (below each AI answer) ──────────────────────────────────── */
+
+.gpt-branch-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 0 4px;
+    opacity: 0;
+    transition: opacity 0.15s;
+    pointer-events: none;
+}
+
+/* Show on hover of the AI answer container that holds the bar */
+.gpt-has-branch-bar:hover .gpt-branch-bar {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Also keep visible when hovering the bar itself */
+.gpt-branch-bar:hover {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.gpt-branch-btn {
+    padding: 4px 12px;
+    border: 1px solid var(--tab-border);
+    border-radius: 12px;
+    background: var(--tab-bg);
+    color: var(--tab-text);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.1s, border-color 0.1s, color 0.1s;
+    white-space: nowrap;
+}
+
+.gpt-branch-btn:hover {
+    background: color-mix(in srgb, var(--branch-accent) 12%, var(--tab-bg));
+    border-color: var(--branch-accent);
+    color: var(--branch-accent);
+}
+
+.gpt-branch-custom-input {
+    flex: 1;
+    min-width: 160px;
+    padding: 4px 10px;
+    border: 1px solid var(--branch-accent);
+    border-radius: 12px;
+    background: var(--tab-bg);
+    color: var(--tab-active-text);
+    font-size: 12px;
+    outline: none;
+}
+
+/* ── Sidebar date — absolutely positioned on the right of each conversation row */
 .gpt-sidebar-date {
     position: absolute;
     right: 10px;

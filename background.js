@@ -1,3 +1,5 @@
+importScripts('branch-store.js');
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const AI_NAMES = ['gemini', 'claude'];
 const AI_URL_PATTERNS = {
@@ -17,6 +19,16 @@ let groupChatTabId = null;
 let groupChatPort = null;
 let groupChatBuffer = []; // messages queued while port is disconnected
 const tabChannelPorts = new Map();
+
+// ── Branch tab tracking ───────────────────────────────────────────────────────
+// Tracks tabs opened for branch creation so we can:
+//  a) inject the prompt when they finish loading
+//  b) capture the new convId when ChatGPT navigates to /c/<uuid>
+//  c) avoid updating aiTabIds for group-chat with branch tabs
+
+const branchTabIds          = new Set();   // tab IDs opened for branches
+const pendingBranchInject   = new Map();   // tabId → { promptText, nodeId, treeId }
+const pendingConvCapture    = new Map();   // tabId → { nodeId, treeId }
 
 function postToGroupChat(msg) {
     if (groupChatPort) {
@@ -90,13 +102,13 @@ chrome.runtime.onConnect.addListener((port) => {
     }
 });
 
-// ── Messages from AI content scripts ─────────────────────────────────────────
-// Content scripts send CONNECTOR_READY, AI_RESPONSE, CONNECTOR_ERROR via
-// chrome.runtime.sendMessage — no persistent port needed.
-chrome.runtime.onMessage.addListener((msg, sender) => {
+// ── Messages from content scripts and AI connectors ──────────────────────────
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    // Group-chat connector messages
     if (msg.type === 'CONNECTOR_READY') {
         const ai = aiFromUrl(sender.tab?.url || '');
-        if (ai && sender.tab?.id) {
+        // Don't let branch tabs overwrite group-chat AI tab IDs
+        if (ai && sender.tab?.id && !branchTabIds.has(sender.tab.id)) {
             aiTabIds[ai] = sender.tab.id;
             persist();
         }
@@ -107,7 +119,130 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
         postToGroupChat(msg);
         return;
     }
+
+    // Branch: content.js reports its convId on SPA navigation
+    if (msg.type === 'REPORT_CONV_ID') {
+        const tabId  = sender.tab?.id;
+        const pending = tabId && pendingConvCapture.get(tabId);
+        if (pending && msg.convId) {
+            pendingConvCapture.delete(tabId);
+            bgUpdateNodeConvId(pending.treeId, pending.nodeId, msg.convId);
+        }
+        return;
+    }
+
+    // Branch: create a new branch conversation
+    if (msg.type === 'CREATE_BRANCH') {
+        handleCreateBranch(msg, sender).then(result => sendResponse(result)).catch(() => sendResponse(null));
+        return true; // async
+    }
+
+    // Branch: check if a convId is a known branch
+    if (msg.type === 'CHECK_BRANCH') {
+        bgCheckBranch(msg.convId).then(sendResponse).catch(() => sendResponse({ isBranch: false }));
+        return true;
+    }
+
+    // Branch: get all child branches of a conversation, grouped by turn index
+    if (msg.type === 'GET_BRANCH_CHILDREN') {
+        bgGetBranchChildren(msg.convId).then(sendResponse).catch(() => sendResponse({}));
+        return true;
+    }
 });
+
+// ── Branch creation ───────────────────────────────────────────────────────────
+
+async function handleCreateBranch(msg, sender) {
+    const { convId, turnIndex, messageId, branchType, customText, questionText, answerText } = msg;
+
+    const promptText = buildBranchPrompt({ questionText, answerText, branchType, customText });
+    const label      = branchType === 'custom'
+        ? (customText || 'Custom').slice(0, 40)
+        : BRANCH_LABELS[branchType];
+
+    const { nodeId, treeId } = await bgCreateNode({
+        parentConvId: convId,
+        turnIndex,
+        messageId,
+        branchType,
+        label,
+        questionText,
+    });
+
+    // Open a new ChatGPT tab — content.js will inject the prompt via DOM
+    const tab = await chrome.tabs.create({ url: 'https://chatgpt.com/', active: true });
+    branchTabIds.add(tab.id);
+    pendingBranchInject.set(tab.id, { promptText, nodeId, treeId });
+    // NOTE: pendingConvCapture is NOT set here — we set it after injection so that
+    // ChatGPT's initial router navigation (which pushes the last-visited /c/<id>)
+    // doesn't consume the capture slot with the wrong convId.
+
+    return { nodeId };
+}
+
+// When the branch tab finishes loading, inject the prompt text into the input box
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+    if (!pendingBranchInject.has(tabId)) return;
+    if (changeInfo.status !== 'complete') return;
+
+    const { promptText, nodeId, treeId } = pendingBranchInject.get(tabId);
+    pendingBranchInject.delete(tabId);
+
+    // Wait for React to mount the editor (ChatGPT is a Next.js SPA)
+    await new Promise(r => setTimeout(r, 1500));
+
+    await injectBranchPrompt(tabId, promptText);
+
+    // Only start capturing convId AFTER injection — ChatGPT's initial router may
+    // have already fired history.pushState (to the last-visited conversation) before
+    // our prompt was submitted, so we must not capture that earlier navigation.
+    pendingConvCapture.set(tabId, { nodeId, treeId });
+});
+
+async function injectBranchPrompt(tabId, promptText) {
+    try {
+        await chrome.scripting.executeScript({
+            target: { tabId },
+            func: (text) => {
+                // ChatGPT uses a ProseMirror contenteditable div
+                const editor =
+                    document.querySelector('#prompt-textarea') ||
+                    document.querySelector('div[contenteditable="true"][data-id]') ||
+                    document.querySelector('div[contenteditable="true"]');
+                if (!editor) { console.log('[Branch] editor not found'); return; }
+
+                editor.focus();
+                // Select all existing content via Range (more reliable than execCommand selectAll
+                // inside executeScript where document focus may not be on the editor)
+                const range = document.createRange();
+                range.selectNodeContents(editor);
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+                document.execCommand('insertText', false, text);
+
+                // Poll for the Send button to become enabled (React needs a tick to
+                // update state after the insertText input event)
+                let attempts = 0;
+                const tryClick = () => {
+                    const btn =
+                        document.querySelector('[data-testid="send-button"]') ||
+                        document.querySelector('button[aria-label*="Send"]') ||
+                        document.querySelector('button[aria-label*="send"]');
+                    if (btn && !btn.disabled) {
+                        btn.click();
+                    } else if (attempts++ < 15) {
+                        setTimeout(tryClick, 200);
+                    }
+                };
+                setTimeout(tryClick, 200);
+            },
+            args: [promptText],
+        });
+    } catch (e) {
+        console.log('[BG] Branch prompt injection failed:', e.message);
+    }
+}
 
 // ── Group-chat message handler ────────────────────────────────────────────────
 async function handleGroupChatMessage(msg) {
@@ -165,9 +300,10 @@ async function injectConnector(ai, tabId) {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
     const ai = Object.keys(aiTabIds).find(a => aiTabIds[a] === tabId);
-    if (!ai) return;
-    aiTabIds[ai] = null;
-    persist();
+    if (ai) { aiTabIds[ai] = null; persist(); }
+    branchTabIds.delete(tabId);
+    pendingBranchInject.delete(tabId);
+    pendingConvCapture.delete(tabId);
 });
 
 // ── Send prompt to AI tab ─────────────────────────────────────────────────────
